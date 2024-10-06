@@ -15,14 +15,14 @@
 ## Requirements
 
 - Python 3.x
-- `bson` library (install using `pip install bson`)
+- `orjson` library (install using `pip install orjson`)
 
 ## Installation
 
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/yourusername/ElementalDB.git
+   git clone https://github.com/cools9/ElementalDB
    ```
 
 2. Navigate into the project directory:
@@ -34,7 +34,7 @@
 3. Install the required dependencies:
 
    ```bash
-   pip install bson
+   pip install orjson
    ```
 
 ## Usage
