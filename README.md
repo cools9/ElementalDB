@@ -17,6 +17,8 @@
 - Python 3.x
 - `orjson` library (install using `pip install orjson`)
 
+All python dependencies can be downloaded via `pip install -r requirements.txt`
+
 ## Installation
 
 1. Clone the repository:
@@ -34,7 +36,7 @@
 3. Install the required dependencies:
 
    ```bash
-   pip install orjson
+   pip install -r requirements.txt
    ```
 
 ## Usage
