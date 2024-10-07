@@ -25,7 +25,10 @@ class ElementalDB:
 
     def save_table(self, table_name):
         table = self.tables[table_name]
-        with open(os.path.join(self.db_directory, f'{table_name}.json'), 'wb') as f:
+        fullpath = os.path.normpath(os.path.join(self.db_directory, f'{table_name}.json'))
+        if not fullpath.startswith(self.db_directory):
+            raise Exception("Invalid table name")
+        with open(fullpath, 'wb') as f:
             f.write(orjson.dumps(table))
 
     def create_table(self, table_name, columns, foreign_keys=None):
