@@ -2,18 +2,20 @@ import orjson
 import os
 import hashlib
 
+from typing import Any, Optional
+
 class ElementalDB:
-    def __init__(self, db_directory, auth=False):
+    def __init__(self, db_directory: str, auth: bool = False) -> None:
         self.db_directory = db_directory
-        self.tables = {}
+        self.tables: dict[str, dict[str, Any]] = {}
         self.auth_enabled = auth
         self.load_tables()
-        self.auth_file = os.path.join(self.db_directory, 'auth.auth')
-        self.users = {}
+        self.auth_file: str = os.path.join(self.db_directory, 'auth.auth')
+        self.users: dict[str, str] = {}
         if self.auth_enabled:
             self.load_auth()
 
-    def load_tables(self):
+    def load_tables(self) -> None:
         if not os.path.exists(self.db_directory):
             os.makedirs(self.db_directory)
 
@@ -23,12 +25,12 @@ class ElementalDB:
                     table_name = filename[:-5]
                     self.tables[table_name] = orjson.loads(f.read())
 
-    def save_table(self, table_name):
+    def save_table(self, table_name: str) -> None:
         table = self.tables[table_name]
         with open(os.path.join(self.db_directory, f'{table_name}.json'), 'wb') as f:
             f.write(orjson.dumps(table))
 
-    def create_table(self, table_name, columns, foreign_keys=None):
+    def create_table(self, table_name: str, columns: list[str], foreign_keys: Optional[dict[str, Any]] = None) -> None:
         if table_name in self.tables:
             raise ValueError(f"Table {table_name} already exists")
 
@@ -39,42 +41,42 @@ class ElementalDB:
         }
         self.save_table(table_name)  # Save the newly created table
 
-    def load_auth(self):
+    def load_auth(self) -> None:
         if os.path.exists(self.auth_file):
             with open(self.auth_file, 'rb') as f:
                 self.users = orjson.loads(f.read())
 
-    def save_auth(self):
+    def save_auth(self) -> None:
         with open(self.auth_file, 'wb') as f:
             f.write(orjson.dumps(self.users))
 
-    def hash_password(self, password):
+    def hash_password(self, password: str) -> str:
         return hashlib.sha256(password.encode()).hexdigest()
 
-    def signup(self, username, password):
+    def signup(self, username: str, password: str) -> None:
         if username in self.users:
             raise ValueError(f"User {username} already exists")
 
         self.users[username] = self.hash_password(password)
         self.save_auth()
 
-    def authenticate(self, username, password):
+    def authenticate(self, username: str, password: str) -> bool:
         hashed_password = self.hash_password(password)
         if username in self.users and self.users[username] == hashed_password:
             return True
         return False
 
-    async def add(self, table_name, columns, values):
+    async def add(self, table_name: str, columns: list[str], values: list[Any]) -> None:
         if table_name not in self.tables:
             raise ValueError(f"Table {table_name} does not exist")
 
-        table = self.tables[table_name]
+        table: dict[str, Any] = self.tables[table_name]
 
         if len(columns) != len(values):
             raise ValueError("Columns and values must match in number")
 
         row_id = len(table['rows']) + 1
-        new_row = {col: val for col, val in zip(columns, values)}
+        new_row: dict[str, Any] = {col: val for col, val in zip(columns, values)}
         new_row['id'] = row_id
 
         for fk_column, ref_table in table['foreign_keys'].items():
@@ -86,12 +88,12 @@ class ElementalDB:
         table['rows'].append(new_row)
         self.save_table(table_name)
 
-    async def get(self, table_name):
+    async def get(self, table_name: str) -> list[dict[str, Any]]:
         if table_name not in self.tables:
             raise ValueError(f"Table {table_name} does not exist")
         return self.tables[table_name]['rows']
 
-    async def update(self, table_name, row_id, updates):
+    async def update(self, table_name: str, row_id: int, updates: dict[str, Any]) -> None:
         if table_name not in self.tables:
             raise ValueError(f"Table {table_name} does not exist")
 
@@ -113,7 +115,7 @@ class ElementalDB:
 
         self.save_table(table_name)
 
-    async def delete(self, table_name, row_id):
+    async def delete(self, table_name: str, row_id: int) -> None:
         if table_name not in self.tables:
             raise ValueError(f"Table {table_name} does not exist")
 
@@ -131,7 +133,7 @@ class ElementalDB:
         table['rows'].remove(row)
         self.save_table(table_name)
 
-    async def delete_cascade(self, table_name, column_name, value):
+    async def delete_cascade(self, table_name: str, column_name: str, value: Any) -> None:
         if table_name not in self.tables:
             raise ValueError(f"Table {table_name} does not exist")
 
