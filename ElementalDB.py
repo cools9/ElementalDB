@@ -1,152 +1,134 @@
-import orjson
 import os
-import hashlib
-
-from typing import Any, Optional
+import json
+import random
+import string
+import asyncio
+import bisect
 
 class ElementalDB:
-    def __init__(self, db_directory: str, auth: bool = False) -> None:
-        self.db_directory = db_directory
-        self.tables: dict[str, dict[str, Any]] = {}
-        self.auth_enabled = auth
-        self.load_tables()
-        self.auth_file: str = os.path.join(self.db_directory, 'auth.auth')
-        self.users: dict[str, str] = {}
-        if self.auth_enabled:
-            self.load_auth()
+    def __init__(self, db_dir="db", map_file="map.map"):
+        self.db_dir = db_dir
+        self.map_file = map_file
+        self.shards = {}  # In-memory cache of active shards
+        self.buffered_records = {}  # Buffers for each shard
+        self.BATCH_SIZE = 500  # Efficient batch size
+        self.WAL_BUFFER = {}  # Write-ahead log buffer
 
-    def load_tables(self) -> None:
-        if not os.path.exists(self.db_directory):
-            os.makedirs(self.db_directory)
+        if not os.path.exists(db_dir):
+            os.makedirs(db_dir)
 
-        for filename in os.listdir(self.db_directory):
-            if filename.endswith('.json'):
-                with open(os.path.join(self.db_directory, filename), 'rb') as f:
-                    table_name = filename[:-5]
-                    self.tables[table_name] = orjson.loads(f.read())
+        # Load the map
+        self.shard_map = self.load_map()
 
-    def save_table(self, table_name: str) -> None:
-        table = self.tables[table_name]
-        fullpath = os.path.normpath(os.path.join(self.db_directory, f'{table_name}.json'))
-        if not fullpath.startswith(self.db_directory):
-            raise Exception("Invalid table name")
-        with open(fullpath, 'wb') as f:
-            f.write(orjson.dumps(table))
+    # Load the map file to track which shard stores what
+    def load_map(self):
+        if os.path.exists(self.map_file):
+            with open(self.map_file, "r") as file:
+                return json.load(file)
+        return {}
 
-    def create_table(self, table_name: str, columns: list[str], foreign_keys: Optional[dict[str, Any]] = None) -> None:
-        if table_name in self.tables:
-            raise ValueError(f"Table {table_name} already exists")
+    # Save the map back to the file
+    def save_map(self):
+        with open(self.map_file, "w") as file:
+            json.dump(self.shard_map, file)
 
-        self.tables[table_name] = {
-            'columns': columns,
-            'rows': [],
-            'foreign_keys': foreign_keys if foreign_keys else {}
-        }
-        self.save_table(table_name)  # Save the newly created table
+    # Get the appropriate shard for a given table
+    def get_shard(self, table_name):
+        shard_id = hash(table_name) % 3 + 1  # Using modulo to distribute across 3 shards
+        shard_name = f"shard_{shard_id}.json"
+        shard_path = os.path.join(self.db_dir, shard_name)
 
-    def load_auth(self) -> None:
-        if os.path.exists(self.auth_file):
-            with open(self.auth_file, 'rb') as f:
-                self.users = orjson.loads(f.read())
+        if shard_name not in self.shards:
+            self.shards[shard_name] = shard_path
 
-    def save_auth(self) -> None:
-        with open(self.auth_file, 'wb') as f:
-            f.write(orjson.dumps(self.users))
+        # Ensure the shard file exists
+        if not os.path.exists(shard_path):
+            with open(shard_path, "w") as f:
+                json.dump([], f)  # Initialize an empty list
 
-    def hash_password(self, password: str) -> str:
-        return hashlib.sha256(password.encode()).hexdigest()
+        return shard_path
 
-    def signup(self, username: str, password: str) -> None:
-        if username in self.users:
-            raise ValueError(f"User {username} already exists")
+    # Add a record to a table
+    async def add(self, table_name: str, record: dict):
+        shard_path = self.get_shard(table_name)
 
-        self.users[username] = self.hash_password(password)
-        self.save_auth()
+        # Buffer records in memory first
+        if shard_path not in self.buffered_records:
+            self.buffered_records[shard_path] = []
 
-    def authenticate(self, username: str, password: str) -> bool:
-        hashed_password = self.hash_password(password)
-        if username in self.users and self.users[username] == hashed_password:
-            return True
-        return False
+        # Add record to the WAL (Write-ahead log) buffer
+        self.WAL_BUFFER.setdefault(shard_path, []).append(record)
 
-    async def add(self, table_name: str, columns: list[str], values: list[Any]) -> None:
-        if table_name not in self.tables:
-            raise ValueError(f"Table {table_name} does not exist")
+        # Flush the buffer to disk when it reaches batch size
+        if len(self.WAL_BUFFER[shard_path]) >= self.BATCH_SIZE:
+            await self.flush(shard_path)
 
-        table: dict[str, Any] = self.tables[table_name]
+    # Efficiently flush buffered records to disk in sorted order
+    async def flush(self, shard_path):
+        if shard_path in self.WAL_BUFFER and len(self.WAL_BUFFER[shard_path]) > 0:
+            records_to_write = self.WAL_BUFFER[shard_path]
+            try:
+                with open(shard_path, "r+") as file:
+                    existing_records = json.load(file)
 
-        if len(columns) != len(values):
-            raise ValueError("Columns and values must match in number")
+                    # Insert new records in sorted order using binary search
+                    for record in records_to_write:
+                        bisect.insort_left(existing_records, record, key=lambda x: x['id'])
 
-        row_id = len(table['rows']) + 1
-        new_row: dict[str, Any] = {col: val for col, val in zip(columns, values)}
-        new_row['id'] = row_id
+                    file.seek(0)
+                    json.dump(existing_records, file)
 
-        for fk_column, ref_table in table['foreign_keys'].items():
-            if fk_column in columns:
-                ref_value = new_row[fk_column]
-                if not any(row['id'] == ref_value for row in self.tables[ref_table]['rows']):
-                    raise ValueError(f"Foreign key constraint failed for {fk_column}: {ref_value} does not exist in {ref_table}")
+                # Clear the WAL buffer after successful flush
+                self.WAL_BUFFER[shard_path] = []
+            except json.JSONDecodeError:
+                # In case of JSON decode error, clear the file and rewrite valid data
+                with open(shard_path, "w") as file:
+                    json.dump([], file)
+                print(f"File {shard_path} was corrupted. Cleared and reset.")
 
-        table['rows'].append(new_row)
-        self.save_table(table_name)
+    # Retrieve a record by ID
+    async def get(self, table_name: str, record_id: int):
+        shard_path = self.get_shard(table_name)
 
-    async def get(self, table_name: str) -> list[dict[str, Any]]:
-        if table_name not in self.tables:
-            raise ValueError(f"Table {table_name} does not exist")
-        return self.tables[table_name]['rows']
+        try:
+            with open(shard_path, "r") as file:
+                records = json.load(file)
+                # Use binary search to find the record
+                index = bisect.bisect_left([record['id'] for record in records], record_id)
+                if index < len(records) and records[index]['id'] == record_id:
+                    return records[index]
+        except json.JSONDecodeError:
+            print(f"Error reading file {shard_path}. File might be corrupted.")
+        return None
 
-    async def update(self, table_name: str, row_id: int, updates: dict[str, Any]) -> None:
-        if table_name not in self.tables:
-            raise ValueError(f"Table {table_name} does not exist")
+    # Update a record by ID
+    async def update(self, table_name: str, record_id: int, updated_record: dict):
+        shard_path = self.get_shard(table_name)
 
-        table = self.tables[table_name]
-        row = next((row for row in table['rows'] if row['id'] == row_id), None)
+        with open(shard_path, "r+") as file:
+            records = json.load(file)
+            # Use binary search to find the record
+            index = bisect.bisect_left([record['id'] for record in records], record_id)
+            if index < len(records) and records[index]['id'] == record_id:
+                records[index] = updated_record
+                file.seek(0)
+                json.dump(records, file)
+                return
+        print(f"Record {record_id} not found in table {table_name}")
 
-        if row is None:
-            raise ValueError(f"Row with id {row_id} does not exist in {table_name}")
+    # Delete a record by ID
+    async def delete(self, table_name: str, record_id: int):
+        shard_path = self.get_shard(table_name)
 
-        for key, value in updates.items():
-            if key in table['columns']:
-                if key in table['foreign_keys']:
-                    ref_table = table['foreign_keys'][key]
-                    if not any(ref_row['id'] == value for ref_row in self.tables[ref_table]['rows']):
-                        raise ValueError(f"Foreign key constraint failed for {key}: {value} does not exist in {ref_table}")
-                row[key] = value
-            else:
-                raise ValueError(f"Column {key} does not exist in {table_name}")
+        with open(shard_path, "r+") as file:
+            records = json.load(file)
+            # Use binary search to find and remove the record
+            index = bisect.bisect_left([record['id'] for record in records], record_id)
+            if index < len(records) and records[index]['id'] == record_id:
+                records.pop(index)
+                file.seek(0)
+                json.dump(records, file)
 
-        self.save_table(table_name)
-
-    async def delete(self, table_name: str, row_id: int) -> None:
-        if table_name not in self.tables:
-            raise ValueError(f"Table {table_name} does not exist")
-
-        table = self.tables[table_name]
-        row = next((row for row in table['rows'] if row['id'] == row_id), None)
-
-        if row is None:
-            raise ValueError(f"Row with id {row_id} does not exist in {table_name}")
-
-        for fk_col, ref_table in table['foreign_keys'].items():
-            for ref_row in self.tables[ref_table]['rows']:
-                if ref_row[fk_col] == row_id:
-                    raise ValueError(f"Cannot delete row with id {row_id} in {table_name} because it is referenced in {ref_table}")
-
-        table['rows'].remove(row)
-        self.save_table(table_name)
-
-    async def delete_cascade(self, table_name: str, column_name: str, value: Any) -> None:
-        if table_name not in self.tables:
-            raise ValueError(f"Table {table_name} does not exist")
-
-        rows_to_delete = [row for row in self.tables[table_name]['rows'] if row[column_name] == value]
-        for row in rows_to_delete:
-            self.tables[table_name]['rows'].remove(row)
-
-        for fk_col, ref_table in self.tables[table_name]['foreign_keys'].items():
-            for ref_row in self.tables[ref_table]['rows']:
-                if ref_row[fk_col] == value:
-                    self.tables[ref_table]['rows'].remove(ref_row)
-
-        self.save_table(table_name)
+    # Helper function: Generate a random string of fixed length
+    def random_string(self, length=10):
+        return ''.join(random.choice(string.ascii_letters) for _ in range(length))
