@@ -1,40 +1,49 @@
-import asyncio
 from ElementalDB import ElementalDB
+import asyncio
 
 async def main():
-    db = ElementalDB('database', auth=True)
+    db = ElementalDB()
 
-    # Create the users table before adding users
-    if 'users' not in db.tables:
-        db.create_table('users', ['username', 'password'])
+    table_name = "test_table"
 
-    # Signup
-    try:
-        db.signup('john_doe', 'secret')
-        db.signup('jane_doe', 'password123')
-    except ValueError as e:
-        print(e)
+    # Add records to the database
+    print("Adding records to the table...")
+    for i in range(10):
+        record = {"id": i + 1, "data": db.random_string()}
+        await db.add(table_name, record)
 
-    # Authenticate
-    if db.authenticate('john_doe', 'secret'):
-        print("Authentication successful for john_doe")
-
-        # Add users only if they don't already exist
-        users = await db.get('users')
-        usernames = [user['username'] for user in users]
-
-        if 'john_doe' not in usernames:
-            await db.add('users', ['username', 'password'], ['john_doe', 'secret'])
-
-        if 'jane_doe' not in usernames:
-            await db.add('users', ['username', 'password'], ['jane_doe', 'password123'])
-
-        print("Users:", await db.get('users'))
+    # Retrieve and display a record
+    print("Retrieving record with ID 5...")
+    record = await db.get(table_name, 5)
+    if record:
+        print(f"Found record: {record}")
     else:
-        print("Authentication failed for john_doe")
+        print("Record not found.")
 
-import time
-start=time.time()
-asyncio.run(main())
-end=time.time()
-print(end-start)
+    # Update a record with ID 5
+    print("Updating record with ID 5...")
+    updated_record = {"id": 5, "data": "Updated Data"}
+    await db.update(table_name, 5, updated_record)
+
+    # Retrieve and display the updated record
+    record = await db.get(table_name, 5)
+    print(f"Updated record: {record}")
+
+    # Delete a record with ID 5
+    print("Deleting record with ID 5...")
+    await db.delete(table_name, 5)
+
+    # Try to retrieve the deleted record
+    record = await db.get(table_name, 5)
+    if record:
+        print(f"Record found: {record}")
+    else:
+        print("Record deleted successfully.")
+
+# Run the example
+if __name__ == "__main__":
+    import time
+    start=time.time()
+    asyncio.run(main())
+    end=time.time()
+    print(end-start)
