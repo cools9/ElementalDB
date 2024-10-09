@@ -2,6 +2,7 @@ import os
 import orjson  # Replaced json with orjson
 import random
 import string
+import cachetools  # Import the cachetools library for caching
 
 class BTreeNode:
     def __init__(self, leaf=False):
@@ -73,6 +74,9 @@ class ElementalDB:
         self.BTREE_DEGREE = 2
         self.btrees = {}
 
+        # Initialize the cache with a max size
+        self.cache = cachetools.LRUCache(maxsize=100)
+
         if not os.path.exists(db_dir):
             os.makedirs(db_dir)
 
@@ -112,6 +116,10 @@ class ElementalDB:
         btree = self.get_btree(table_name)
         btree.insert(record['id'])
 
+        # Cache the record after adding it
+        cache_key = f"{table_name}_{record['id']}"
+        self.cache[cache_key] = record
+
         with open(shard_path, "rb+") as file:
             try:
                 records = orjson.loads(file.read())
@@ -124,6 +132,11 @@ class ElementalDB:
             file.truncate()
 
     async def get(self, table_name, record_id):
+        # Check cache first
+        cache_key = f"{table_name}_{record_id}"
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+
         shard_path = self.get_shard(table_name)
         btree = self.get_btree(table_name)
         result = btree.search(btree.root, record_id)
@@ -134,6 +147,8 @@ class ElementalDB:
                     records = orjson.loads(file.read())
                     for record in records:
                         if record['id'] == record_id:
+                            # Cache the record for future access
+                            self.cache[cache_key] = record
                             return record
                 except orjson.JSONDecodeError:
                     return None
@@ -157,6 +172,10 @@ class ElementalDB:
                         file.seek(0)
                         file.write(orjson.dumps(records))
                         file.truncate()
+
+                        # Update the cache with the new record
+                        cache_key = f"{table_name}_{record_id}"
+                        self.cache[cache_key] = updated_record
                         return
         print(f"Record {record_id} not found in table {table_name}")
 
@@ -173,8 +192,11 @@ class ElementalDB:
                     file.seek(0)
                     file.write(orjson.dumps(records))
                     file.truncate()
+
+                    # Remove the record from cache
+                    cache_key = f"{table_name}_{record_id}"
+                    if cache_key in self.cache:
+                        del self.cache[cache_key]
+
                 except orjson.JSONDecodeError:
                     return None
-
-    def random_string(self, length=10):
-        return ''.join(random.choice(string.ascii_letters) for _ in range(length))
