@@ -1,80 +1,17 @@
 import os
-import orjson  # Replaced json with orjson
+import orjson
 import random
 import string
-import cachetools  # Import the cachetools library for caching
-
-class BTreeNode:
-    def __init__(self, leaf=False):
-        self.leaf = leaf
-        self.keys = []
-        self.children = []
-
-class BTree:
-    def __init__(self, t):
-        self.root = BTreeNode(leaf=True)
-        self.t = t
-
-    def search(self, node, key):
-        i = 0
-        while i < len(node.keys) and key > node.keys[i]:
-            i += 1
-        if i < len(node.keys) and key == node.keys[i]:
-            return node.keys[i]
-        if node.leaf:
-            return None
-        return self.search(node.children[i], key)
-
-    def insert(self, key):
-        root = self.root
-        if len(root.keys) == 2 * self.t - 1:
-            s = BTreeNode()
-            s.children.append(root)
-            self.split_child(s, 0)
-            self.root = s
-        self.insert_non_full(self.root, key)
-
-    def insert_non_full(self, node, key):
-        i = len(node.keys) - 1
-        if node.leaf:
-            node.keys.append(None)
-            while i >= 0 and key < node.keys[i]:
-                node.keys[i + 1] = node.keys[i]
-                i -= 1
-            node.keys[i + 1] = key
-        else:
-            while i >= 0 and key < node.keys[i]:
-                i -= 1
-            i += 1
-            if len(node.children[i].keys) == 2 * self.t - 1:
-                self.split_child(node, i)
-                if key > node.keys[i]:
-                    i += 1
-            self.insert_non_full(node.children[i], key)
-
-    def split_child(self, node, i):
-        t = self.t
-        y = node.children[i]
-        z = BTreeNode(leaf=y.leaf)
-        node.children.insert(i + 1, z)
-        node.keys.insert(i, y.keys[t - 1])
-        z.keys = y.keys[t:(2 * t - 1)]
-        y.keys = y.keys[0:t - 1]
-
-        if not y.leaf:
-            z.children = y.children[t:(2 * t)]
-            y.children = y.children[0:t]
+import cachetools
 
 class ElementalDB:
     def __init__(self, db_dir="db", map_file="map.map"):
         self.db_dir = db_dir
         self.map_file = map_file
         self.shards = {}
-        self.WAL_BUFFER = {}
         self.BTREE_DEGREE = 2
         self.btrees = {}
 
-        # Initialize the cache with a max size
         self.cache = cachetools.LRUCache(maxsize=100)
 
         if not os.path.exists(db_dir):
@@ -92,11 +29,6 @@ class ElementalDB:
         with open(self.map_file, "wb") as file:
             file.write(orjson.dumps(self.shard_map))
 
-    def get_btree(self, table_name):
-        if table_name not in self.btrees:
-            self.btrees[table_name] = BTree(t=self.BTREE_DEGREE)
-        return self.btrees[table_name]
-
     def get_shard(self, table_name):
         shard_id = hash(table_name) % 3 + 1
         shard_name = f"shard_{shard_id}.json"
@@ -111,14 +43,26 @@ class ElementalDB:
 
         return shard_path
 
-    async def add(self, table_name, record):
-        shard_path = self.get_shard(table_name)
-        btree = self.get_btree(table_name)
-        btree.insert(record['id'])
+    def create_table(self, table_name, schema=[]):
+        self.shard_map[table_name] = schema
+        self.save_map()
 
-        # Cache the record after adding it
-        cache_key = f"{table_name}_{record['id']}"
-        self.cache[cache_key] = record
+    async def add(self, table_name, data=[]):
+        shard_path = self.get_shard(table_name)
+        record = {}
+
+        schema = self.shard_map.get(table_name)
+        if not schema:
+            print(f"No schema found for table {table_name}")
+            return
+
+        if isinstance(data, list) and len(data) == len(schema):
+            record = {col[0]: data[i] for i, col in enumerate(schema)}
+
+        if 'id' not in record:
+            record['id'] = random.randint(1, 1000000)
+
+        self.cache[f"{table_name}_{record['id']}"] = record
 
         with open(shard_path, "rb+") as file:
             try:
@@ -131,72 +75,97 @@ class ElementalDB:
             file.write(orjson.dumps(records))
             file.truncate()
 
-    async def get(self, table_name, record_id):
-        # Check cache first
-        cache_key = f"{table_name}_{record_id}"
+    async def get(self, table_name, column_name, value):
+        shard_path = self.get_shard(table_name)
+        cache_key = f"{table_name}_{value}"
+
         if cache_key in self.cache:
             return self.cache[cache_key]
 
-        shard_path = self.get_shard(table_name)
-        btree = self.get_btree(table_name)
-        result = btree.search(btree.root, record_id)
+        with open(shard_path, "rb") as file:
+            try:
+                records = orjson.loads(file.read())
+            except orjson.JSONDecodeError:
+                return None
 
-        if result is not None:
-            with open(shard_path, "rb") as file:
-                try:
-                    records = orjson.loads(file.read())
-                    for record in records:
-                        if record['id'] == record_id:
-                            # Cache the record for future access
-                            self.cache[cache_key] = record
-                            return record
-                except orjson.JSONDecodeError:
-                    return None
+            for record in records:
+                if record.get(column_name) == value:
+                    self.cache[cache_key] = record
+                    return record
         return None
 
-    async def update(self, table_name, record_id, updated_record):
+    async def update(self, table_name, record_id, updated_data):
         shard_path = self.get_shard(table_name)
-        btree = self.get_btree(table_name)
-        result = btree.search(btree.root, record_id)
 
-        if result is not None:
-            with open(shard_path, "rb+") as file:
-                try:
-                    records = orjson.loads(file.read())
-                except orjson.JSONDecodeError:
-                    records = []
+        with open(shard_path, "rb+") as file:
+            try:
+                records = orjson.loads(file.read())
+            except orjson.JSONDecodeError:
+                return None
 
-                for i, record in enumerate(records):
-                    if record['id'] == record_id:
-                        records[i] = updated_record
-                        file.seek(0)
-                        file.write(orjson.dumps(records))
-                        file.truncate()
+            record_found = False
+            for record in records:
+                if record.get('id') == record_id:
+                    record_found = True
+                    record.update(updated_data)
+                    break
 
-                        # Update the cache with the new record
-                        cache_key = f"{table_name}_{record_id}"
-                        self.cache[cache_key] = updated_record
-                        return
-        print(f"Record {record_id} not found in table {table_name}")
+            if not record_found:
+                print(f"Record with id {record_id} not found.")
+                return None
 
-    async def delete(self, table_name, record_id):
+            file.seek(0)
+            file.write(orjson.dumps(records))
+            file.truncate()
+
+            cache_key = f"{table_name}_{record_id}"
+            if cache_key in self.cache:
+                self.cache[cache_key].update(updated_data)
+
+            print(f"Record with id {record_id} updated.")
+
+    async def delete(self, table_name, data):
         shard_path = self.get_shard(table_name)
-        btree = self.get_btree(table_name)
-        result = btree.search(btree.root, record_id)
 
-        if result is not None:
-            with open(shard_path, "rb+") as file:
-                try:
-                    records = orjson.loads(file.read())
-                    records = [record for record in records if record['id'] != record_id]
-                    file.seek(0)
-                    file.write(orjson.dumps(records))
-                    file.truncate()
+        with open(shard_path, "rb+") as file:
+            try:
+                records = orjson.loads(file.read())
+            except orjson.JSONDecodeError:
+                return None
 
-                    # Remove the record from cache
-                    cache_key = f"{table_name}_{record_id}"
-                    if cache_key in self.cache:
-                        del self.cache[cache_key]
+            # Get the schema columns (names only)
+            schema_columns = [col[0] for col in self.shard_map[table_name]]
 
-                except orjson.JSONDecodeError:
-                    return None
+            # If data is a list (e.g., ['Alice', 30]), delete the matching records
+            if isinstance(data, list):
+                if len(data) != len(schema_columns):
+                    print("Data list does not match schema length.")
+                    return
+
+                # Perform deletion based on matching column values
+                records = [
+                    record for record in records
+                    if not all(record.get(col) == val for col, val in zip(schema_columns, data))
+                ]
+            elif isinstance(data, int):
+                if 0 <= data < len(records):
+                    del records[data]
+                else:
+                    print("Invalid row number")
+                    return
+
+            file.seek(0)
+            file.write(orjson.dumps(records))
+            file.truncate()
+
+            print(f"Record {data} deleted from table '{table_name}'")
+
+    def print_all(self, table_name):
+        shard_path = self.get_shard(table_name)
+        with open(shard_path, "rb") as file:
+            try:
+                records = orjson.loads(file.read())
+                for record in records:
+                    print(record)
+            except orjson.JSONDecodeError:
+                print(f"No records found for table {table_name}")
