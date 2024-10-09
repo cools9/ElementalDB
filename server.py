@@ -13,14 +13,15 @@ from auth import (
     get_current_user
 )
 from datetime import timedelta
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, Depends, oauth2
+from http import HTTPStatus
 # Initialize FastAPI and the ElementalDB instance
 app = FastAPI()
 auth_enabled = True
 db = ElementalDB('database', auth=auth_enabled)  # Initialize the database
 
-@app.post("/signup", response_model=UserResponse)
-async def signup(user: UserCreate):
+@app.post("/signup")
+async def signup(user: User):
     """
     Create a new user account.
 
@@ -40,11 +41,11 @@ async def signup(user: UserCreate):
         raise HTTPException(status_code=400, detail="Username already registered")
 
     hashed_password = get_password_hash(user.password)
-    user_record = (
+    user_record = {
         "username": user.username,
         "password": hashed_password,
         "role": "user"
-    )
+    }
 
     try: 
         await db.add("USERS", user_record)
@@ -54,7 +55,7 @@ async def signup(user: UserCreate):
 
         created_user = created_users[0]
 
-        return UserResponse(id=created_user['id'], username=created_user['username'], role=created_user['role'])
+        return User(id=created_user['id'], username=created_user['username'], role=created_user['role'])
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -76,9 +77,9 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), auth_enabled: 
         user = await authenticate_user(form_data.username, form_data.password)
         if not user:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                status_code=HTTPStatus.UNAUTHORIZED,
                 detail="Incorrect username or password",
-                headers={"WWW-Authenticate": "Bearer"},
+                headers={"WWW-Authenticate": "Bearer"}
             )
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
@@ -89,6 +90,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), auth_enabled: 
 
 @app.post("/add")
 async def add_item(table_name: str, columns: List[str], values: List[str], token: str = Depends(oauth2_scheme), auth_enabled: bool = True):
+                                                                                # Error here   ∧∧∧∧∧∧∧∧∧∧∧∧∧
     """
     Add a new item to a specified table in the database.
 
@@ -142,6 +144,7 @@ async def get_items(table_name: str):
 
 @app.delete("/delete/{table_name}/{id}")
 async def delete_item(table_name: str, id: int, token: str = Depends(oauth2_scheme), auth_enabled: bool = auth_enabled):
+    #                                                  # Error here  ∧∧∧∧∧∧∧∧∧∧∧∧
     """
     Delete a specific item from a table by its ID.
 
@@ -167,6 +170,7 @@ async def delete_item(table_name: str, id: int, token: str = Depends(oauth2_sche
 
 @app.put("/update")
 async def update_item(table_name: str, row_id: int, updates: Dict[str, str], token: str = Depends(oauth2_scheme), auth_enabled: bool = auth_enabled):
+    #                                                                               # Error Here  ∧∧∧∧∧∧∧∧∧∧∧∧
     """
     Update a specific item in a table by its ID.
 
