@@ -1,44 +1,21 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from typing import List, Dict
 import uvicorn
 from ElementalDB import ElementalDB
 
+# Initialize FastAPI and the ElementalDB instance
 app = FastAPI()
-db = ElementalDB('database', auth=True)  # Set auth=True if authentication is needed
-
-class Item(BaseModel):
-    """
-    Schema for adding an item to a table in the database.
-
-    Attributes:
-        table_name (str): The name of the table to which the item will be added.
-        columns (list): The list of column names corresponding to the values.
-        values (list): The list of values to be added to the specified columns.
-    """
-    table_name: str
-    columns: list
-    values: list
-
-class UpdateItem(BaseModel):
-    """
-    Schema for updating an existing item in a table.
-
-    Attributes:
-        table_name (str): The name of the table where the item resides.
-        row_id (int): The unique identifier of the row to be updated.
-        updates (dict): A dictionary of column-value pairs representing the updates.
-    """
-    table_name: str
-    row_id: int
-    updates: dict
+db = ElementalDB('database')  # Initialize the database
 
 @app.post("/add")
-async def add_item(item: Item):
+async def add_item(table_name: str, columns: List[str], values: List[str]):
     """
     Add a new item to a specified table in the database.
 
     Args:
-        item (Item): The item to be added, containing table name, columns, and values.
+        table_name (str): The name of the table to add the item.
+        columns (list): The list of column names corresponding to the values.
+        values (list): The list of values to be added to the specified columns.
 
     Returns:
         dict: A success message if the item is added successfully.
@@ -46,8 +23,13 @@ async def add_item(item: Item):
     Raises:
         HTTPException: If there is an error during the addition of the item.
     """
+    if len(columns) != len(values):
+        raise HTTPException(status_code=422, detail="Columns and values length must match.")
+
     try:
-        await db.add(item.table_name, item.columns, item.values)
+        # Prepare a dictionary of column-value pairs
+        record = dict(zip(columns, values))
+        await db.add(table_name, record)  # Pass the record to the DB
         return {"message": "Item added successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -68,6 +50,8 @@ async def get_items(table_name: str):
     """
     try:
         items = await db.get(table_name)
+        if not items:
+            raise HTTPException(status_code=404, detail="Table not found or is empty")
         return items
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -94,21 +78,23 @@ async def delete_item(table_name: str, id: int):
         raise HTTPException(status_code=404, detail=str(e))
 
 @app.put("/update")
-async def update_item(update_item: UpdateItem):
+async def update_item(table_name: str, row_id: int, updates: Dict[str, str]):
     """
     Update a specific item in a table by its ID.
 
     Args:
-        update_item (UpdateItem): The item update information containing table name, row ID, and updates.
+        table_name (str): The name of the table where the item resides.
+        row_id (int): The unique identifier of the row to be updated.
+        updates (dict): A dictionary of column-value pairs representing the updates.
 
     Returns:
         dict: A success message if the item is updated successfully.
 
     Raises:
-        HTTPException: If the item does not exist, the column does not exist, or an error occurs during the update.
+        HTTPException: If the item does not exist, or if an error occurs during the update.
     """
     try:
-        await db.update(update_item.table_name, update_item.row_id, update_item.updates)
+        await db.update(table_name, row_id, updates)
         return {"message": "Item updated successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

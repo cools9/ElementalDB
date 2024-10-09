@@ -1,49 +1,29 @@
 from ElementalDB import ElementalDB
-import asyncio
 
-async def main():
+async def example_usage():
     db = ElementalDB()
 
-    table_name = "test_table"
+    record1 = {"id": 1, "name": "Alice", "age": 25}
+    record2 = {"id": 2, "name": "Bob", "age": 30}
+    record3 = {"id": 3, "name": "Charlie", "age": 35}
 
-    # Add records to the database
-    print("Adding records to the table...")
-    for i in range(10):
-        record = {"id": i + 1, "data": db.random_string()}
-        await db.add(table_name, record)
+    await db.add("test_table", record1)
+    await db.add("test_table", record2)
+    await db.add("test_table", record3)
 
-    # Retrieve and display a record
-    print("Retrieving record with ID 5...")
-    record = await db.get(table_name, 5)
-    if record:
-        print(f"Found record: {record}")
-    else:
-        print("Record not found.")
+    record = await db.get("test_table", 2)
+    print(f"Retrieved record: {record}")
 
-    # Update a record with ID 5
-    print("Updating record with ID 5...")
-    updated_record = {"id": 5, "data": "Updated Data"}
-    await db.update(table_name, 5, updated_record)
+    updated_record = {"id": 2, "name": "Bob", "age": 31}
+    await db.update("test_table", 2, updated_record)
+    print(f"Updated record: {await db.get('test_table', 2)}")
 
-    # Retrieve and display the updated record
-    record = await db.get(table_name, 5)
-    print(f"Updated record: {record}")
-
-    # Delete a record with ID 5
-    print("Deleting record with ID 5...")
-    await db.delete(table_name, 5)
-
-    # Try to retrieve the deleted record
-    record = await db.get(table_name, 5)
-    if record:
-        print(f"Record found: {record}")
-    else:
-        print("Record deleted successfully.")
+    await db.delete("test_table", 1)
+    print(f"Record 1 after deletion: {await db.get('test_table', 1)}")
 
 # Run the example
-if __name__ == "__main__":
-    import time
-    start=time.time()
-    asyncio.run(main())
-    end=time.time()
-    print(end-start)
+import asyncio
+import time
+start=time.time()
+asyncio.run(example_usage())
+print(time.time()-start)
