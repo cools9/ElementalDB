@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from typing import Optional
@@ -39,7 +40,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 async def get_user(username: str) -> Optional[UserInDB]:
     try:
-        users = await db.get("USERS", filters{"username": username})
+        users = await db.get("USERS", filters={"username": username})
         if users:
             user_data = users[0]
             return UserInDB(**user_data)
