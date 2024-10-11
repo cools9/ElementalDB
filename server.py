@@ -13,15 +13,18 @@ from auth import (
     get_current_user
 )
 from datetime import timedelta
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, Depends, oauth2
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, Depends
 from http import HTTPStatus
 # Initialize FastAPI and the ElementalDB instance
 app = FastAPI()
 auth_enabled = True
 db = ElementalDB('database', auth=auth_enabled)  # Initialize the database
 
+#Make the oauth2_scheme variable
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
 @app.post("/signup")
-async def signup(user: User):
+async def signup(requesterUser: User, newUser: User):
     """
     Create a new user account.
 
@@ -35,27 +38,30 @@ async def signup(user: User):
         HTTPException: If the username already exists or if there is a database error.
     """
 
+    if not "a" in requesterUser.role:
+        raise HTTPException(status_code=HTTPStatus.UNAUTHORIZED)
+
     # Checks if user already exists
-    existing_users = await db.get("USERS", filters={"username": user.username})
+    existing_users = await db.get("USERS", filters={"username": newUser.username})
     if existing_users:
         raise HTTPException(status_code=400, detail="Username already registered")
 
-    hashed_password = get_password_hash(user.password)
-    user_record = {
-        "username": user.username,
-        "password": hashed_password,
-        "role": "user"
-    }
+    hashed_password = get_password_hash(newUser.password)
+    user_record = [
+        newUser.username,
+        hashed_password,
+        newUser.role
+    ]
 
     try: 
         await db.add("USERS", user_record)
-        created_users = await db.get("USERS", filters={"username": user.username})
+        created_users = await db.get("USERS", filters={"username": newUser.username})
         if not created_users:
             raise HTTPException(status_code=400, detail="Error retrieving created user")
 
         created_user = created_users[0]
 
-        return User(id=created_user['id'], username=created_user['username'], role=created_user['role'])
+        return User(_id=created_user['id'], _username=created_user['username'], _role=created_user['role'])
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -89,8 +95,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), auth_enabled: 
         return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/add")
-async def add_item(table_name: str, columns: List[str], values: List[str], token: str = Depends(oauth2_scheme), auth_enabled: bool = True):
-                                                                                # Error here   ∧∧∧∧∧∧∧∧∧∧∧∧∧
+async def add_item(requesterUser: User, table_name: str, columns: List[str], values: List[str], token: str = Depends(oauth2_scheme), auth_enabled: bool = True):
     """
     Add a new item to a specified table in the database.
 
@@ -105,6 +110,10 @@ async def add_item(table_name: str, columns: List[str], values: List[str], token
     Raises:
         HTTPException: If there is an error during the addition of the item.
     """
+
+    if not "w" in requesterUser.role:
+        raise HTTPException(status_code=HTTPStatus.UNAUTHORIZED)
+
     if len(columns) != len(values):
         raise HTTPException(status_code=422, detail="Columns and values length must match.")
 
@@ -143,8 +152,7 @@ async def get_items(table_name: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 @app.delete("/delete/{table_name}/{id}")
-async def delete_item(table_name: str, id: int, token: str = Depends(oauth2_scheme), auth_enabled: bool = auth_enabled):
-    #                                                  # Error here  ∧∧∧∧∧∧∧∧∧∧∧∧
+async def delete_item(requesterUser: User, table_name: str, id: int, token: str = Depends(oauth2_scheme), auth_enabled: bool = auth_enabled):
     """
     Delete a specific item from a table by its ID.
 
@@ -158,6 +166,10 @@ async def delete_item(table_name: str, id: int, token: str = Depends(oauth2_sche
     Raises:
         HTTPException: If the item does not exist or if an error occurs during deletion.
     """
+
+    if not "d" in requesterUser.role:
+        raise HTTPException(status_code=HTTPStatus.UNAUTHORIZED)
+
     # Authorization checks
     if auth_enabled:
         user = await get_current_user(token)
@@ -169,8 +181,7 @@ async def delete_item(table_name: str, id: int, token: str = Depends(oauth2_sche
         raise HTTPException(status_code=404, detail=str(e))
 
 @app.put("/update")
-async def update_item(table_name: str, row_id: int, updates: Dict[str, str], token: str = Depends(oauth2_scheme), auth_enabled: bool = auth_enabled):
-    #                                                                               # Error Here  ∧∧∧∧∧∧∧∧∧∧∧∧
+async def update_item(requesterUser: User, table_name: str, row_id: int, updates: Dict[str, str], token: str = Depends(oauth2_scheme), auth_enabled: bool = auth_enabled):
     """
     Update a specific item in a table by its ID.
 
@@ -185,6 +196,10 @@ async def update_item(table_name: str, row_id: int, updates: Dict[str, str], tok
     Raises:
         HTTPException: If the item does not exist, or if an error occurs during the update.
     """
+
+    if not "w" in requesterUser.role:
+        raise HTTPException(status_code=HTTPStatus.UNAUTHORIZED)
+
     # Authorization checks
     if auth_enabled:
         user = await get_current_user(token)

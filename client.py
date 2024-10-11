@@ -1,6 +1,7 @@
 import requests
 from typing import Any, List, Dict
 import time
+from auth import User
 
 class ElementalDBClient:
     """
@@ -88,6 +89,17 @@ class ElementalDBClient:
             return {"error": "Request timed out"}
         except requests.exceptions.RequestException as e:
             return {"error": str(e)}
+        
+    def signup(self, username: str, password: str, role: str):
+        """ Requests to make a new user by the given arguments """
+
+        try:
+            response = requests.post(f"{self.base_url}/signup", json={
+                #"requesterUser": self.currentUser,
+                #"newUser": User()
+            })
+        except:
+            pass
 
     def update_item(self, table_name: str, row_id: int, updates: Dict[str, Any]) -> Dict:
         """

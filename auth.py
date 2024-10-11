@@ -1,6 +1,6 @@
 import asyncio
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer
 from typing import Optional
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
@@ -24,9 +24,17 @@ class TokenData(BaseModel):
     username: Optional[str] = None
 
 class User(BaseModel):
+    
     id: int
     username: str
+    password: str
     role: str
+
+    def __init__(self, _id: int, _username: str, _password: str, _role: str):
+        self.id = _id
+        self.username = _username
+        self.password = _password
+        self.role = _role
 
 class UserInDB(User):
     hashed_password: str
