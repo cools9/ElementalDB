@@ -7,13 +7,14 @@ from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from pydantic import BaseModel
 from ElementalDB import ElementalDB
+from decouple import config
 
-SECRET_KEY = "ElementalDB"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+SECRET_KEY = config("SECRET_KEY")
+ALGORITHM = config("ALGORITHM")
+ACCESS_TOKEN_EXPIRE_MINUTES = config("ACCESS_TOKEN_EXPIRE_MINUTES")
 
 db = ElementalDB("database")
-pwd_context = CryptContext(schemas=["argon2"], deprecated="auto")
+pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 class Token(BaseModel):
