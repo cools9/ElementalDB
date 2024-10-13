@@ -17,17 +17,21 @@ db = ElementalDB("database")
 pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
+
 class Token(BaseModel):
     access_token: str
     token_type: str
 
+
 class TokenData(BaseModel):
     username: Optional[str] = None
+
 
 class User(BaseModel):
     id: int
     username: str
     role: str
+
 
 class UserInDB(User):
     hashed_password: str
@@ -36,8 +40,10 @@ class UserInDB(User):
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
+
 
 async def get_user(username: str) -> Optional[UserInDB]:
     try:
@@ -49,12 +55,14 @@ async def get_user(username: str) -> Optional[UserInDB]:
         return None
     return None
 
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta if expires_delta else timedelta(minutes=15))
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
 
 async def authenticate_user(username: str, password: str, auth_enabled: bool = True) -> Optional[UserInDB]:
     if not auth_enabled:

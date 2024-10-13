@@ -4,6 +4,7 @@ import random
 import string
 import cachetools
 
+
 class ElementalDB:
     def __init__(self, db_dir="db", map_file="map.map"):
         self.db_dir = db_dir
