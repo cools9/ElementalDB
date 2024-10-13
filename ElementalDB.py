@@ -4,7 +4,6 @@ import random
 import string
 import cachetools
 
-
 class ElementalDB:
     def __init__(self, db_dir="db", map_file="map.map"):
         self.db_dir = db_dir
@@ -12,9 +11,6 @@ class ElementalDB:
         self.shards = {}
         self.BTREE_DEGREE = 2
         self.btrees = {}
-        # this attributes to handle unique ID generation
-        self.data = []
-        self.next_id = 1
 
         self.cache = cachetools.LRUCache(maxsize=100)
 
@@ -64,11 +60,7 @@ class ElementalDB:
             record = {col[0]: data[i] for i, col in enumerate(schema)}
 
         if 'id' not in record:
-            record_id = self.next_id
-            record['id'] = record_id
-            self.data.append(record)
-            self.next_id += 1
-            return record_id
+            record['id'] = random.randint(1, 1000000)
 
         self.cache[f"{table_name}_{record['id']}"] = record
 

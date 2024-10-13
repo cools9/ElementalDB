@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from typing import List, Dict, Optional
 import uvicorn
 from ElementalDB import ElementalDB
@@ -13,13 +13,12 @@ from auth import (
     get_current_user
 )
 from datetime import timedelta
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, oauth2
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, Depends, oauth2
 from http import HTTPStatus
-from auth import oauth2_scheme
 # Initialize FastAPI and the ElementalDB instance
 app = FastAPI()
 auth_enabled = True
-db = ElementalDB('database')  # Initialize the database
+db = ElementalDB('database', auth=auth_enabled)  # Initialize the database
 
 @app.post("/signup")
 async def signup(user: User):
@@ -48,7 +47,7 @@ async def signup(user: User):
         "role": "user"
     }
 
-    try:
+    try: 
         await db.add("USERS", user_record)
         created_users = await db.get("USERS", filters={"username": user.username})
         if not created_users:
@@ -84,7 +83,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), auth_enabled: 
             )
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
-            data={"sub": user.username, "role": user.role},
+            data={"sub": user.username, "role": user.role}, 
             expires_delta=access_token_expires
         )
         return {"access_token": access_token, "token_type": "bearer"}

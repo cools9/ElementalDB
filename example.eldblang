@@ -1,0 +1,6 @@
+create table users schema [name, age, city]
+add users ["Alice", 30, "New York"]
+add users ["Bob", 25, "Los Angeles"]
+update users ["Alice", 30, "New York"] ["Alice", 31, "New York"]
+delete users ["Alice", 31, "New York"]
+select users ["Bob", 25, "Los Angeles"]
